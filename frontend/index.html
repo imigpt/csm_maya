@@ -23,7 +23,7 @@
     let micStream;
 
     document.getElementById('startBtn').onclick = async function() {
-      socket = new WebSocket("wss://5pffrmhw14domw-8000.proxy.runpod.net/ws/assistant");
+      socket = new WebSocket("wss://tdotl5s0nofznv-8000.proxy.runpod.net/ws/assistant");
 
       socket.onopen = async function() {
         log("✅ Connected to Assistant!");
@@ -142,7 +142,7 @@
 
     function playAudio(audioData) {
       const audioPlayer = document.getElementById('audioPlayer');
-      const backendBaseUrl = "https://5pffrmhw14domw-8000.proxy.runpod.net";
+      const backendBaseUrl = "https://tdotl5s0nofznv-8000.proxy.runpod.net";
       const fullAudioUrl = backendBaseUrl + audioData;
 
       audioPlayer.src = fullAudioUrl;
