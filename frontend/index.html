@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎙️ Voice Assistant with VAD (Optimized)</title>
+</head>
+<body>
+  <h1>🎙️ Voice Assistant</h1>
+  <button id="startBtn">Start Assistant</button>
+  <button id="stopBtn" disabled>Stop Assistant</button>
+  <div id="log" style="margin-top:20px;"></div>
+
+  <audio id="audioPlayer" controls style="display:none;"></audio>
+
+  <script>
+    let socket;
+    let mediaRecorder;
+    let audioChunks = [];
+    let vadInterval;
+    let analyser;
+    let audioContext;
+    let micStream;
+
+    document.getElementById('startBtn').onclick = async function() {
+      socket = new WebSocket("wss://5pffrmhw14domw-8000.proxy.runpod.net/ws/assistant");
+
+      socket.onopen = async function() {
+        log("✅ Connected to Assistant!");
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        await startMic();
+      };
+
+      socket.onmessage = function(event) {
+        log(event.data);
+        const response = JSON.parse(event.data);
+
+        if (response.audio_url) {
+          playAudio(response.audio_url);
+        }
+      };
+
+      socket.onclose = function() {
+        log("❌ Connection closed.");
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        stopMic();
+      };
+
+      socket.onerror = function(error) {
+        log("❌ Error: " + error.message);
+      };
+    };
+
+    document.getElementById('stopBtn').onclick = function() {
+      if (socket) socket.close();
+    };
+
+    function log(message) {
+      const logDiv = document.getElementById('log');
+      const p = document.createElement('p');
+      p.textContent = message;
+      logDiv.appendChild(p);
+    }
+
+    async function startMic() {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(micStream);
+      source.connect(analyser);
+
+      mediaRecorder = new MediaRecorder(micStream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        log("💾 Audio recorded. Sending to backend...");
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          socket.send(arrayBuffer);
+        }
+      };
+
+      mediaRecorder.start();
+      log("🎤 Recording started...");
+
+      startVAD();
+    }
+
+    function stopMic() {
+      if (vadInterval) clearInterval(vadInterval);
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+      }
+      if (audioContext && audioContext.state !== "closed") {
+        audioContext.close();
+      }
+    }
+
+    function startVAD() {
+      const silenceThreshold = 0.01;
+      const silenceDuration = 800; // 0.8 sec
+
+      let silenceStart = null;
+
+      vadInterval = setInterval(() => {
+        const dataArray = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(dataArray);
+
+        let sumSquares = 0.0;
+        for (const amplitude of dataArray) {
+          const normalized = (amplitude - 128) / 128.0;
+          sumSquares += normalized * normalized;
+        }
+        const volume = Math.sqrt(sumSquares / dataArray.length);
+
+        if (volume < silenceThreshold) {
+          if (!silenceStart) {
+            silenceStart = Date.now();
+          } else if (Date.now() - silenceStart > silenceDuration) {
+            log("🤫 Silence detected. Stopping recording...");
+            stopMic();
+          }
+        } else {
+          silenceStart = null;
+        }
+      }, 200);
+    }
+
+    function playAudio(audioData) {
+      const audioPlayer = document.getElementById('audioPlayer');
+      const backendBaseUrl = "https://5pffrmhw14domw-8000.proxy.runpod.net";
+      const fullAudioUrl = backendBaseUrl + audioData;
+
+      audioPlayer.src = fullAudioUrl;
+      audioPlayer.style.display = 'block';
+      audioPlayer.play()
+        .then(() => {
+          log("🎶 Playing audio from backend...");
+        })
+        .catch((error) => {
+          log("❌ Error playing audio: " + error.message);
+        });
+
+      audioPlayer.onended = function() {
+        startMic();
+      };
+    }
+  </script>
+</body>
+</html>
